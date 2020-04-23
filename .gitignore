@@ -112,3 +112,4 @@ src/lambdas/
 # End of https://www.gitignore.io/api/node
 test.js
 package-lock.json
+*.zip

@@ -1,40 +1,51 @@
-const uuid = require("uuid");
-const AWS = require("aws-sdk");
-const docClient = new AWS.DynamoDB.DocumentClient({region : "us-east-1"});
+const awsService = require("./services/awsService.js");
+/*const dotenv = require("dotenv");
+dotenv.config();*/
 
 exports.handler = async (event, context) => {
 
-    const tableName = process.env.REMINDERS_BOT_TABLE;    
+    const remindersTableName = process.env.REMINDERS_BOT_TABLE;
+    const remindersLambdaName = process.env.REMINDERS_LAMBDA_NAME;
+    const remindersLambdaArn = process.env.REMINDERS_LAMBDA_ARN;
 
-    return new Promise((resolve,reject)=>{
-        event.Records.forEach(record => {
-            const { body } = record;
-            
-            const {username, data, assunto} = JSON.parse(body);
-            
-            const item = {
-                uuid : uuid.v1(),
-                username : username,
-                creation_date : new Date().toISOString(),
-                reminder_date : new Date(data).toISOString(),
-                body : assunto,
-                dismissed : false
-            };
+    return new Promise((resolve, reject) => {
+        event.Records.forEach(async record => {
+            const reminder = JSON.parse(record.body);
 
-            const params = {
-                TableName : tableName,
-                Item : item
-            };
+            const putItemResp = await awsService.dynamodb
+                .putItem(remindersTableName, reminder);
 
-            docClient.put(params, function(err, data) {
-                if (err) {
-                    reject(err);
-                    //console.error("Unable to add item. Error JSON:", JSON.stringify(err, null, 2));
-                } else {
-                    resolve(data);
-                    //console.log("Added item:", JSON.stringify(data, null, 2));
-                }
-            });
+            const date = new Date(reminder.reminder_date);
+            const ss = date.getUTCSeconds();
+            const mm = date.getUTCMinutes();
+            const hh = date.getUTCHours();
+            const dd = date.getUTCDate();
+            const MM = date.getUTCMonth();
+            const yyyy = date.getUTCFullYear();
+
+            const ruleName = `rule_reminder_${reminder.uuid}`;
+            const scheduleExpression = `cron(${mm} ${hh} ${dd + 1} ${MM + 1} ? ${yyyy})`;
+            const ruleState = "ENABLED";
+
+            const putRuleResp = await awsService.cloudWatchEvents
+                .putRule(ruleName, scheduleExpression, ruleState);
+
+            const action = "lambda:InvokeFunction";
+            const functionName = remindersLambdaName;
+            const principal = "events.amazonaws.com";
+            const sourceArn = putRuleResp.RuleArn;
+            const statementId = `reminder_statement_${reminder.uuid}`;
+
+            const addPermissionResp = await awsService.lambda
+                .addPermission(action, functionName, principal, sourceArn, statementId);
+
+            const targets = [{
+                Arn: remindersLambdaArn,
+                Id: `reminder_target_${reminder.uuid}`,
+                Input: `{"uuid" : "${reminder.uuid}"}`
+            }];
+
+            const putTargetResp = await awsService.cloudWatchEvents.putTargets(ruleName, targets);
         });
     });
 };
