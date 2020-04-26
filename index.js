@@ -24,7 +24,7 @@ exports.handler = async (event, context) => {
             const yyyy = date.getUTCFullYear();
 
             const ruleName = `rule_reminder_${reminder.uuid}`;
-            const scheduleExpression = `cron(${mm} ${hh} ${dd + 1} ${MM + 1} ? ${yyyy})`;
+            const scheduleExpression = `cron(${mm} ${hh} ${dd} ${MM + 1} ? ${yyyy})`;
             const ruleState = "ENABLED";
 
             const putRuleResp = await awsService.cloudWatchEvents
