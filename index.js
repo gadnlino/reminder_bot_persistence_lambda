@@ -8,7 +8,7 @@ exports.handler = async (event, context) => {
     const remindersLambdaName = process.env.REMINDERS_LAMBDA_NAME;
     const remindersLambdaArn = process.env.REMINDERS_LAMBDA_ARN;
 
-    return new Promise((resolve, reject) => {
+    return new Promise((_, __) => {
         event.Records.forEach(async record => {
             const reminder = JSON.parse(record.body);
 
@@ -42,10 +42,14 @@ exports.handler = async (event, context) => {
             const targets = [{
                 Arn: remindersLambdaArn,
                 Id: `reminder_target_${reminder.uuid}`,
-                Input: `{"uuid" : "${reminder.uuid}"}`
+                Input: `{"uuid" : "${reminder.uuid}", \
+                        "creation_date" : "${new Date().toISOString()}", \
+                        "rule_arn" : "${putRuleResp.RuleArn}", \
+                        "rule_name" : "${ruleName}"}`
             }];
 
-            const putTargetResp = await awsService.cloudWatchEvents.putTargets(ruleName, targets);
+            const putTargetResp = await awsService
+                            .cloudWatchEvents.putTargets(ruleName, targets);
         });
     });
 };
