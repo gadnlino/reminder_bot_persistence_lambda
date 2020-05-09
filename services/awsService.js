@@ -1,4 +1,4 @@
-const region = "us-east-1";
+const region = process.env.AWS_REGION;
 
 const AWS = require("aws-sdk");
 const sqs = new AWS.SQS({ region });
@@ -26,6 +26,17 @@ module.exports = {
             };
 
             const req = sqs.receiveMessage(params);
+
+            return req.promise();
+        },
+        
+        deleteMessage: async (QueueUrl, ReceiptHandle) => {
+            const params = {
+                QueueUrl,
+                ReceiptHandle
+            };
+
+            const req = sqs.deleteMessage(params);
 
             return req.promise();
         }
