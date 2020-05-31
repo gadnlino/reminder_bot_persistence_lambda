@@ -90,11 +90,12 @@ module.exports = {
         }
     },
     cloudWatchEvents: {
-        putRule: async (Name, ScheduleExpression, State) => {
+        putRule: async (Name, ScheduleExpression, EventBusName, State) => {
 
             const params = {
                 Name,
                 ScheduleExpression,
+                EventBusName,
                 State
             };
 

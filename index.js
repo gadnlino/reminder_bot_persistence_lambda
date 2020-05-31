@@ -28,7 +28,7 @@ exports.handler = async (event, context) => {
             const ruleState = "ENABLED";
 
             const putRuleResp = await awsService.cloudWatchEvents
-                .putRule(ruleName, scheduleExpression, ruleState);
+                .putRule(ruleName, scheduleExpression, /*"reminder_bot_events"*/ null, ruleState);
 
             const action = "lambda:InvokeFunction";
             const functionName = remindersLambdaName;
