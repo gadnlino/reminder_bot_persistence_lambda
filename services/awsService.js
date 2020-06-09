@@ -1,4 +1,5 @@
-const region = process.env.AWS_REGION;
+//const region = process.env.AWS_REGION;
+const region = "us-east-1";
 
 const AWS = require("aws-sdk");
 const sqs = new AWS.SQS({ region });
@@ -29,7 +30,7 @@ module.exports = {
 
             return req.promise();
         },
-        
+
         deleteMessage: async (QueueUrl, ReceiptHandle) => {
             const params = {
                 QueueUrl,
@@ -87,6 +88,26 @@ module.exports = {
             const req = docClient.update(params);
 
             return req.promise();
+        },
+        scan : async (TableName) => {
+            var params = {
+                /*ExpressionAttributeNames: {
+                 "#AT": "AlbumTitle", 
+                 "#ST": "SongTitle"
+                }, 
+                ExpressionAttributeValues: {
+                 ":a": {
+                   S: "No One You Know"
+                  }
+                }, 
+                FilterExpression: "Artist = :a", 
+                ProjectionExpression: "#ST, #AT", */
+                TableName
+            };
+
+            const req = docClient.scan(params);
+
+            return req.promise();
         }
     },
     cloudWatchEvents: {
@@ -103,7 +124,7 @@ module.exports = {
 
             return req.promise();
         },
-        putTargets : async (Rule, Targets)=>{
+        putTargets: async (Rule, Targets) => {
 
             const params = {
                 Rule,
@@ -113,7 +134,30 @@ module.exports = {
             const req = cwevents.putTargets(params);
 
             return req.promise();
-        }
+        },
+
+        listRules: async (EventBusName, NamePrefix) => {
+            var params = {
+                EventBusName,
+                //Limit: 'NUMBER_VALUE',
+                NamePrefix,
+                //NextToken: 'STRING_VALUE'
+            };
+
+            const req = cwevents.listRules(params);
+
+            return req.promise();
+        },
+        
+        deleteRule: async (RuleName) => {
+            var params = {
+                Name: RuleName
+            };
+            
+            const req = cwevents.deleteRule(params);
+
+            return req.promise();
+        },
     },
     lambda: {
         addPermission: async (Action, FunctionName, Principal, SourceArn, StatementId) => {
