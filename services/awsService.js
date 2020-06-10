@@ -89,7 +89,7 @@ module.exports = {
 
             return req.promise();
         },
-        scan : async (TableName) => {
+        scan: async (TableName) => {
             var params = {
                 /*ExpressionAttributeNames: {
                  "#AT": "AlbumTitle", 
@@ -111,12 +111,11 @@ module.exports = {
         }
     },
     cloudWatchEvents: {
-        putRule: async (Name, ScheduleExpression, EventBusName, State) => {
+        putRule: async (Name, ScheduleExpression, State) => {
 
             const params = {
                 Name,
                 ScheduleExpression,
-                EventBusName,
                 State
             };
 
@@ -148,16 +147,37 @@ module.exports = {
 
             return req.promise();
         },
-        
+
         deleteRule: async (RuleName) => {
             var params = {
                 Name: RuleName
             };
-            
+
             const req = cwevents.deleteRule(params);
 
             return req.promise();
         },
+
+        listTargets: async (RuleName) => {
+            var params = {
+                Rule: RuleName
+            };
+
+            const req = cwevents.listTargetsByRule(params);
+
+            return req.promise();
+        },
+
+        removeTargets: async (TargetIds, RuleName) => {
+            var params = {
+                Ids: TargetIds,
+                Rule: RuleName
+            };
+
+            const req = cwevents.removeTargets(params);
+
+            return req.promise();
+        }
     },
     lambda: {
         addPermission: async (Action, FunctionName, Principal, SourceArn, StatementId) => {
@@ -171,6 +191,27 @@ module.exports = {
             };
 
             const req = lambda.addPermission(params);
+
+            return req.promise();
+        },
+
+        getPolicy : async (FunctionName)=>{
+            var params = {FunctionName};
+
+            const req = lambda.getPolicy(params);
+
+            return req.promise();
+        },
+
+        removePermission: async (FunctionName, StatementId) => {
+            var params = {
+                FunctionName,
+                StatementId,
+                // Qualifier: 'STRING_VALUE',
+                // RevisionId: 'STRING_VALUE'
+            };
+
+            const req = lambda.removePermission(params);
 
             return req.promise();
         }

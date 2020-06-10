@@ -11,13 +11,45 @@ exports.handler = async (event, context) => {
     const statementPreffix = "reminder_statement_";
     const targetPreffix = "reminder_target_";
 
-    async function removeRules(rules) {
-        //TODO : FAZER EXATAMENTE O OPOSTO DA FUNCAO ABAIXO
+    function removeRules(rules) {
+
+        async function removeTargetsForRule(ruleName) {
+            const listTargetsResp = await awsService
+                .cloudWatchEvents.listTargets(ruleName);
+
+            const targetIds = listTargetsResp.Targets.map(t => t.Id);
+
+            if (targetIds.length > 0) {
+                await awsService
+                    .cloudWatchEvents.removeTargets(targetIds, ruleName);
+            }
+        }
+
+        async function removeInvokeLambdaPermission(lambdaName, statementId){
+            const getPolicyResp = await awsService.lambda.getPolicy(lambdaName);
+
+            const policy = JSON.parse(getPolicyResp.Policy);
+
+            if(policy.Statement.find(s=>s.Sid === statementId)){
+                await awsService.lambda
+                .removePermission(lambdaName, statementId);
+            }
+        }
+
+        rules.forEach(async rule => {
+            const { name, uuid, arn } = rule;
+
+            await removeTargetsForRule(name);
+            await removeInvokeLambdaPermission(remindersLambdaName, `${statementPreffix}${uuid}`);
+            await awsService.cloudWatchEvents.deleteRule(name);
+        });
     }
 
-    async function createRulesForReminders(reminders) {
-        reminders.forEach(async reminder => {
-            const date = new Date(reminder.reminder_date);
+    function createRulesForReminders(reminders) {
+
+        async function createRule(ruleName, reminder_date) {
+
+            const date = new Date(reminder_date);
             const ss = date.getUTCSeconds();
             const mm = date.getUTCMinutes();
             const hh = date.getUTCHours();
@@ -25,32 +57,44 @@ exports.handler = async (event, context) => {
             const MM = date.getUTCMonth();
             const yyyy = date.getUTCFullYear();
 
-            const ruleName = `${ruleNamePreffix}${reminder.uuid}`;
             const scheduleExpression = `cron(${mm} ${hh} ${dd} ${MM + 1} ? ${yyyy})`;
 
-            const putRuleResp = await awsService.cloudWatchEvents
-                .putRule(ruleName, scheduleExpression, /*"reminder_bot_events"*/ null, "ENABLED");
-            
+            const resp = await awsService.cloudWatchEvents
+                .putRule(ruleName, scheduleExpression, "ENABLED");
+
+            return resp;
+        }
+
+        async function addInvokeLambdaPermission(lambdaName, ruleArn, statementId) {
             const action = "lambda:InvokeFunction";
-            const functionName = remindersLambdaName;
             const principal = "events.amazonaws.com";
-            const sourceArn = putRuleResp.RuleArn;
-            const statementId = `${statementPreffix}${reminder.uuid}`;
 
-            const addPermissionResp = await awsService.lambda
-                .addPermission(action, functionName, principal, sourceArn, statementId);
+            await awsService.lambda
+                .addPermission(action, lambdaName, principal, ruleArn, statementId);
+        }
 
+        async function putTargetsToRule(uuid, ruleName, ruleArn) {
             const targets = [{
                 Arn: remindersLambdaArn,
-                Id: `${targetPreffix}${reminder.uuid}`,
-                Input: `{"uuid" : "${reminder.uuid}", \
+                Id: `${targetPreffix}${uuid}`,
+                Input: `{"uuid" : "${uuid}", \
                         "creation_date" : "${new Date().toISOString()}", \
-                        "rule_arn" : "${putRuleResp.RuleArn}", \
+                        "rule_arn" : "${ruleArn}", \
                         "rule_name" : "${ruleName}"}`
             }];
 
             const putTargetResp = await awsService
                 .cloudWatchEvents.putTargets(ruleName, targets);
+        }
+
+        reminders.forEach(async reminder => {
+            const { uuid, reminder_date } = reminder;
+            const ruleName = `${ruleNamePreffix}${uuid}`;
+            const putRuleResp = await createRule(ruleName, reminder_date);
+            await addInvokeLambdaPermission(remindersLambdaName,
+                putRuleResp.RuleArn, `${statementPreffix}${uuid}`);
+
+            await putTargetsToRule(uuid, ruleName, putRuleResp.RuleArn);
         });
     }
 
@@ -96,14 +140,14 @@ exports.handler = async (event, context) => {
             const intersection = reminders
                 .filter(r => rules.find(rule => rule.uuid === r.uuid) !== undefined);
 
-            const remindersToAdd = reminders.filter(r => 
+            const remindersToAdd = reminders.filter(r =>
                 !intersection.find(rule => rule.uuid === r.uuid));
 
-            const rulesToRemove = rules.filter(r => 
+            const rulesToRemove = rules.filter(r =>
                 !intersection.find(rule => rule.uuid === r.uuid));
 
-            await removeRules(rulesToRemove);
-            await createRulesForReminders(remindersToAdd);           
+            removeRules(rulesToRemove);
+            createRulesForReminders(remindersToAdd);
         });
     });
 };
