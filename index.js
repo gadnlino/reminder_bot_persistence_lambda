@@ -11,7 +11,94 @@ exports.handler = async (event, context) => {
     const statementPreffix = "reminder_statement_";
     const targetPreffix = "reminder_target_";
 
+    return new Promise((_, __) => {
+        event.Records.forEach(async record => {
+
+            const reminder = JSON.parse(record.body);
+
+            const queryResp = await awsService.dynamodb.queryItems(
+                remindersTableName,
+                "#id = :value",
+                { "#id": "uuid" },
+                { ":value": reminder.uuid }
+            );
+
+            if (queryResp.Count === 0) {
+                console.log("criando lembrete...")
+                const putItemResp = await awsService.dynamodb
+                    .putItem(remindersTableName, reminder);
+            }
+            else {
+                console.log("deletando lembrete...")
+                await awsService.dynamodb.deleteItem(remindersTableName, {
+                    "uuid": reminder.uuid
+                });
+            }
+
+            await manageRulesAndReminders();
+        });
+    });
+
+    async function manageRulesAndReminders() {
+        const scanResp = await awsService.dynamodb.scan(remindersTableName);
+
+        let reminders = scanResp.Items.map(item => ({
+            uuid: item.uuid,
+            reminder_date: item.reminder_date
+        }));
+
+        reminders.sort(function (a, b) {
+            if (a.reminder_date <= b.reminder_date) return -1;
+            return 1;
+        });
+
+        if (reminders.length > 1) {
+            reminders = reminders.slice(0, 1);
+        }
+
+        const listRulesResp = await awsService.cloudWatchEvents
+            .listRules("default", ruleNamePreffix);
+
+        const rules = listRulesResp.Rules.map(rule => ({
+            name: rule.Name,
+            uuid: rule.Name.split("_")[2]
+        }));
+
+        //get the reminders that have associated rules with it
+        const intersection = reminders
+            .filter(r => rules.find(rule => rule.uuid === r.uuid) !== undefined);
+
+        //if a reminder does not have an associated rule, i have to create it
+        const remindersToAdd = reminders.filter(r =>
+            intersection.find(rule => rule.uuid === r.uuid) === undefined);
+
+        //if a rule does not have a reminder on dynamo(among those 40), then it must be removed
+        const rulesToRemove = rules.filter(r =>
+            intersection.find(reminder => reminder.uuid === r.uuid) === undefined);
+
+        if (rulesToRemove.length > 0) {
+            removeRules(rulesToRemove);
+        }
+        else console.log("There was no rules to remove");
+
+        if (remindersToAdd.length > 0) {
+            createRulesForReminders(remindersToAdd);
+        }
+        else console.log("there was no reminders to add");
+    }
+
     function removeRules(rules) {
+
+        console.log("rules to remove: ");
+        console.log(`${rules}`);
+
+        rules.forEach(async rule => {
+            const { name, uuid } = rule;
+
+            await removeTargetsForRule(name);
+            await removeInvokeLambdaPermission(remindersLambdaName, `${statementPreffix}${uuid}`);
+            await awsService.cloudWatchEvents.deleteRule(name);
+        });
 
         async function removeTargetsForRule(ruleName) {
             const listTargetsResp = await awsService
@@ -25,27 +112,33 @@ exports.handler = async (event, context) => {
             }
         }
 
-        async function removeInvokeLambdaPermission(lambdaName, statementId){
+        async function removeInvokeLambdaPermission(lambdaName, statementId) {
             const getPolicyResp = await awsService.lambda.getPolicy(lambdaName);
 
             const policy = JSON.parse(getPolicyResp.Policy);
 
-            if(policy.Statement.find(s=>s.Sid === statementId)){
-                await awsService.lambda
-                .removePermission(lambdaName, statementId);
+            if (policy.Statement.find(s => s.Sid === statementId)) {
+                const removePermResp = await awsService.lambda
+                    .removePermission(lambdaName, statementId);
             }
         }
-
-        rules.forEach(async rule => {
-            const { name, uuid, arn } = rule;
-
-            await removeTargetsForRule(name);
-            await removeInvokeLambdaPermission(remindersLambdaName, `${statementPreffix}${uuid}`);
-            await awsService.cloudWatchEvents.deleteRule(name);
-        });
     }
 
     function createRulesForReminders(reminders) {
+
+        console.log("reminders to add: ");
+        console.log(`${reminders}`);
+
+        reminders.forEach(async reminder => {
+            const { uuid, reminder_date } = reminder;
+            const ruleName = `${ruleNamePreffix}${uuid}`;
+            //const ruleName = `rule_reminder/${uuid}`;
+            const putRuleResp = await createRule(ruleName, reminder_date);
+            // await addInvokeLambdaPermission(remindersLambdaName,
+            //     putRuleResp.RuleArn, `${statementPreffix}${uuid}`);
+
+            await putTargetsToRule(uuid, ruleName, putRuleResp.RuleArn);
+        });
 
         async function createRule(ruleName, reminder_date) {
 
@@ -70,7 +163,8 @@ exports.handler = async (event, context) => {
             const principal = "events.amazonaws.com";
 
             await awsService.lambda
-                .addPermission(action, lambdaName, principal, ruleArn, statementId);
+                .addPermission(action, lambdaName, principal,
+                    "arn:aws:events:us-east-1:702784444557:rule/rule_reminder_*", statementId);
         }
 
         async function putTargetsToRule(uuid, ruleName, ruleArn) {
@@ -86,68 +180,5 @@ exports.handler = async (event, context) => {
             const putTargetResp = await awsService
                 .cloudWatchEvents.putTargets(ruleName, targets);
         }
-
-        reminders.forEach(async reminder => {
-            const { uuid, reminder_date } = reminder;
-            const ruleName = `${ruleNamePreffix}${uuid}`;
-            const putRuleResp = await createRule(ruleName, reminder_date);
-            await addInvokeLambdaPermission(remindersLambdaName,
-                putRuleResp.RuleArn, `${statementPreffix}${uuid}`);
-
-            await putTargetsToRule(uuid, ruleName, putRuleResp.RuleArn);
-        });
     }
-
-    return new Promise((_, __) => {
-        event.Records.forEach(async record => {
-            const reminder = JSON.parse(record.body);
-
-            const queryResp = await awsService.dynamodb.queryItems(
-                remindersTableName,
-                "#id = :value",
-                { "#id": "uuid" },
-                { ":value": reminder.uuid }
-            );
-
-            if (queryResp.Count === 0) {
-                const putItemResp = await awsService.dynamodb
-                    .putItem(remindersTableName, reminder);
-            }
-
-            const scanResp = await awsService.dynamodb.scan(remindersTableName);
-
-            let reminders = scanResp.Items.map(item => ({
-                uuid: item.uuid,
-                reminder_date: item.reminder_date
-            }));
-
-            reminders.sort(function (a, b) {
-                if (a.reminder_date <= b.reminder_date) return -1;
-                return 1;
-            });
-
-            reminders = reminders.length < 40 ? reminders : reminders.slice(0, 39);
-
-            const listRulesResp = await awsService.cloudWatchEvents
-                .listRules("default", ruleNamePreffix);
-
-            const rules = listRulesResp.Rules.map(rule => ({
-                name: rule.Name,
-                uuid: rule.Name.split("_")[2],
-                arn: rule.Arn
-            }));
-
-            const intersection = reminders
-                .filter(r => rules.find(rule => rule.uuid === r.uuid) !== undefined);
-
-            const remindersToAdd = reminders.filter(r =>
-                !intersection.find(rule => rule.uuid === r.uuid));
-
-            const rulesToRemove = rules.filter(r =>
-                !intersection.find(rule => rule.uuid === r.uuid));
-
-            removeRules(rulesToRemove);
-            createRulesForReminders(remindersToAdd);
-        });
-    });
 };
