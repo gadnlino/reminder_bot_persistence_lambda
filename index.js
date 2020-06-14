@@ -132,11 +132,7 @@ exports.handler = async (event, context) => {
         reminders.forEach(async reminder => {
             const { uuid, reminder_date } = reminder;
             const ruleName = `${ruleNamePreffix}${uuid}`;
-            //const ruleName = `rule_reminder/${uuid}`;
             const putRuleResp = await createRule(ruleName, reminder_date);
-            // await addInvokeLambdaPermission(remindersLambdaName,
-            //     putRuleResp.RuleArn, `${statementPreffix}${uuid}`);
-
             await putTargetsToRule(uuid, ruleName, putRuleResp.RuleArn);
         });
 
@@ -158,14 +154,14 @@ exports.handler = async (event, context) => {
             return resp;
         }
 
-        async function addInvokeLambdaPermission(lambdaName, ruleArn, statementId) {
-            const action = "lambda:InvokeFunction";
-            const principal = "events.amazonaws.com";
+        // async function addInvokeLambdaPermission(lambdaName, ruleArn, statementId) {
+        //     const action = "lambda:InvokeFunction";
+        //     const principal = "events.amazonaws.com";
 
-            await awsService.lambda
-                .addPermission(action, lambdaName, principal,
-                    "arn:aws:events:us-east-1:702784444557:rule/rule_reminder_*", statementId);
-        }
+        //     await awsService.lambda
+        //         .addPermission(action, lambdaName, principal,
+        //             "arn:aws:events:us-east-1:702784444557:rule/rule_reminder_*", statementId);
+        // }
 
         async function putTargetsToRule(uuid, ruleName, ruleArn) {
             const targets = [{
