@@ -55,6 +55,18 @@ module.exports = {
 
             return req.promise();
         },
+
+        deleteItem : async (TableName, Key)=>{
+
+            var params = {
+                TableName, Key
+            };
+
+            const req = docClient.delete(params);
+
+            return req.promise();
+        },
+
         queryItems: async (TableName,
             FilterExpression,
             ExpressionAttributeNames,
