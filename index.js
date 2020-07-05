@@ -40,6 +40,8 @@ exports.handler = async (event, context) => {
     });
 
     async function manageRulesAndReminders() {
+        const now = new Date();
+        
         const scanResp = await awsService.dynamodb.scan(remindersTableName);
 
         let reminders = scanResp.Items.map(item => ({
@@ -52,7 +54,9 @@ exports.handler = async (event, context) => {
             return 1;
         });
 
-        if (reminders.length > 1) {
+        reminders = reminders.filter(r=>new Date(r.reminder_date) >= now);
+
+        if (reminders.length > 20) {
             reminders = reminders.slice(0, 1);
         }
 
@@ -72,7 +76,7 @@ exports.handler = async (event, context) => {
         const remindersToAdd = reminders.filter(r =>
             intersection.find(rule => rule.uuid === r.uuid) === undefined);
 
-        //if a rule does not have a reminder on dynamo(among those 40), then it must be removed
+        //if a rule does not have a reminder on dynamo(among those 20), then it must be removed
         const rulesToRemove = rules.filter(r =>
             intersection.find(reminder => reminder.uuid === r.uuid) === undefined);
 
@@ -90,7 +94,7 @@ exports.handler = async (event, context) => {
     function removeRules(rules) {
 
         console.log("rules to remove: ");
-        console.log(`${rules}`);
+        console.log(`${JSON.stringify(rules)}`);
 
         rules.forEach(async rule => {
             const { name, uuid } = rule;
@@ -127,13 +131,13 @@ exports.handler = async (event, context) => {
     function createRulesForReminders(reminders) {
 
         console.log("reminders to add: ");
-        console.log(`${reminders}`);
+        console.log(`${JSON.stringify(reminders)}`);
 
         reminders.forEach(async reminder => {
             const { uuid, reminder_date } = reminder;
             const ruleName = `${ruleNamePreffix}${uuid}`;
             const putRuleResp = await createRule(ruleName, reminder_date);
-            await putTargetsToRule(uuid, ruleName, putRuleResp.RuleArn);
+            await putTargetsToRule(uuid, reminder.reminder_date, ruleName, putRuleResp.RuleArn);
         });
 
         async function createRule(ruleName, reminder_date) {
@@ -154,21 +158,13 @@ exports.handler = async (event, context) => {
             return resp;
         }
 
-        // async function addInvokeLambdaPermission(lambdaName, ruleArn, statementId) {
-        //     const action = "lambda:InvokeFunction";
-        //     const principal = "events.amazonaws.com";
-
-        //     await awsService.lambda
-        //         .addPermission(action, lambdaName, principal,
-        //             "arn:aws:events:us-east-1:702784444557:rule/rule_reminder_*", statementId);
-        // }
-
-        async function putTargetsToRule(uuid, ruleName, ruleArn) {
+        async function putTargetsToRule(uuid,reminder_date, ruleName, ruleArn) {
             const targets = [{
                 Arn: remindersLambdaArn,
                 Id: `${targetPreffix}${uuid}`,
                 Input: `{"uuid" : "${uuid}", \
                         "creation_date" : "${new Date().toISOString()}", \
+                        "reminder_date":"${reminder_date}",\
                         "rule_arn" : "${ruleArn}", \
                         "rule_name" : "${ruleName}"}`
             }];
